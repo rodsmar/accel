@@ -1,14 +1,11 @@
 #ifndef __RADIUS_H
 #define __RADIUS_H
 
-#include <netinet/in.h>
 #include <stdint.h>
-#include <sys/time.h>
-
-#include <linux/if.h>           /* For IFNAMSIZ */
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 #include "ap_session.h"
-#include "list.h"
 
 #define REQ_LENGTH_MAX 4096
 
@@ -139,6 +136,10 @@ int rad_packet_change_octets(struct rad_packet_t *pack, const char *vendor, cons
 int rad_packet_add_ipaddr(struct rad_packet_t *pack, const char *vendor, const char *name, in_addr_t ipaddr);
 int rad_packet_add_ifid(struct rad_packet_t *pack, const char *vendor, const char *name, uint64_t ifid);
 int rad_packet_add_ipv6prefix(struct rad_packet_t *pack, const char *vendor, const char *name, struct in6_addr *prefix, int len);
+
+struct radius_pd_t;
+
+struct radius_pd_t *find_pd(struct ap_session *ses);
 
 #endif
 

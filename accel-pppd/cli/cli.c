@@ -3,13 +3,18 @@
 #include <stdarg.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <pcre2.h>
+#include <pthread.h>
 
 #include "triton.h"
-
+#include "ppp.h"
 #include "cli.h"
 #include "cli_p.h"
 #include "log.h"
 #include "events.h"
+#include "ap_session.h"
+#include "radius.h"
 
 #include "memdebug.h"
 
@@ -28,6 +33,9 @@ char *conf_cli_prompt;
 
 static LIST_HEAD(simple_cmd_list);
 static LIST_HEAD(regexp_cmd_list);
+
+extern struct list_head sessions;
+extern pthread_rwlock_t sessions_lock;
 
 void __export cli_register_simple_cmd(struct cli_simple_cmd_t *cmd)
 {
@@ -281,10 +289,12 @@ out_found:
 static int terminate_exec(const char *cmd, char * const *f, int f_cnt, void *cli)
 {
 	struct ap_session *ses;
-	pcre *re = NULL;
-	const char *pcre_err;
-	int pcre_offset;
-	int match[3];
+	pcre2_code *re = NULL;
+	int err;
+	uint32_t options = 0;
+	size_t erroff;
+	PCRE2_SIZE *match = NULL;
+	pcre2_match_data *match_data = NULL;
 	struct ap_session **sessions = NULL;
 	int sess_cnt = 0, i;
 	int force = 0;
@@ -295,17 +305,21 @@ static int terminate_exec(const char *cmd, char * const *f, int f_cnt, void *cli
 	if (f_cnt == 3 && !strcmp(f[2], "force"))
 		force = 1;
 
-	re = pcre_compile2(f[1], 0, NULL, &pcre_err, &pcre_offset, NULL);
+	re = pcre2_compile((PCRE2_SPTR)f[1], PCRE2_ZERO_TERMINATED, options, &err, &erroff, NULL);
 
 	if (!re) {
-		cli_sendv(cli, "failed to compile regexp: %s\n", pcre_err);
+		PCRE2_UCHAR buffer[256];
+		pcre2_get_error_message(err, buffer, sizeof(buffer));
+		cli_sendv(cli, "failed to compile regexp: %s\n", buffer);
 		return CLI_CMD_OK;
 	}
+
+	match_data = pcre2_match_data_create(20, NULL);
 
 	pthread_rwlock_rdlock(&sessions_lock);
 	list_for_each_entry(ses, &sessions, entry) {
 		if (ses->username) {
-			if (pcre_exec(re, NULL, ses->username, strlen(ses->username), 0, 0, match, 3) < 0)
+			if (pcre2_match(re, (PCRE2_SPTR)ses->username, strlen(ses->username), 0, 0, match_data, NULL) < 0)
 				continue;
 		}
 
@@ -318,7 +332,8 @@ static int terminate_exec(const char *cmd, char * const *f, int f_cnt, void *cli
 	}
 	pthread_rwlock_unlock(&sessions_lock);
 
-	pcre_free(re);
+	pcre2_match_data_free(match_data);
+	pcre2_code_free(re);
 
 	if (sessions) {
 		for (i = 0; i < sess_cnt; i++) {
@@ -326,14 +341,14 @@ static int terminate_exec(const char *cmd, char * const *f, int f_cnt, void *cli
 			if (force && ses->ctrl->ppp) {
 				struct radius_pd_t *rpd = find_pd(ses);
 				if (rpd && rpd->reject_authenticated) {
-					cli_send(cli, "disconnecting session %s (forced)\n", ses->sessionid);
+					cli_sendv(cli, "disconnecting session %s (forced)\n", ses->sessionid);
 					ap_session_terminate(ses, TERM_ADMIN_RESET, 0);
 				} else {
-					cli_send(cli, "disconnecting session %s\n", ses->sessionid);
+					cli_sendv(cli, "disconnecting session %s\n", ses->sessionid);
 					ap_session_terminate(ses, TERM_ADMIN_RESET, 0);
 				}
 			} else {
-				cli_send(cli, "disconnecting session %s\n", ses->sessionid);
+				cli_sendv(cli, "disconnecting session %s\n", ses->sessionid);
 				ap_session_terminate(ses, TERM_ADMIN_RESET, 0);
 			}
 		}
@@ -370,7 +385,7 @@ static void init(void)
 
 	triton_event_register_handler(EV_CONFIG_RELOAD, (triton_event_func)load_config);
 	
-	cli_register_simple_cmd2(terminate_exec, NULL, 2, "terminate", "<session_id> [force]", "terminate session");
+	cli_register_simple_cmd2(terminate_exec, NULL, 1, "terminate", "<session_id> [force]", "terminate session");
 }
 
 DEFINE_INIT(10, init);

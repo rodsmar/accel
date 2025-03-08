@@ -1,22 +1,40 @@
-#ifndef __CLI_P_H
-#define __CLI_P_H
+#ifndef CLI_P_H
+#define CLI_P_H
 
-#include <stdarg.h>
+#include <pcre2.h>
+#include <list.h>
 
-#include "triton.h"
+#include "cli.h"
 
 struct cli_client_t
 {
-	uint8_t *cmdline;
-	int (*send)(struct cli_client_t *, const void *buf, int size);
-	int (*sendv)(struct cli_client_t *, const char *fmt, va_list ap);
 	void (*disconnect)(struct cli_client_t *);
+	int (*send)(struct cli_client_t *, const void *, int);
+	int (*sendv)(struct cli_client_t *, const char *, va_list);
+
+	const char *cmdline;
+	int cor_len;
 };
 
-int cli_process_cmd(struct cli_client_t *cln);
+struct cli_simple_cmd_t
+{
+	struct list_head entry;
+	int hdr_len;
+	char **hdr;
+	
+	int (*exec)(const char *cmd, char * const *fields, int flen, void *client);
+	void (*help)(char * const *fields, int flen, void *client);
+};
 
-extern char *conf_cli_passwd;
-extern char *conf_cli_prompt;
+struct cli_regexp_cmd_t
+{
+	struct list_head entry;
+	pcre2_code *re;
+	pcre2_code *h_re;
+	
+	int (*exec)(const char *cmd, void *client);
+	void (*help)(const char *cmd, void *client);
+};
 
 #endif
 
