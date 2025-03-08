@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <time.h>
 #include <linux/rtnetlink.h>
+#include <netinet/in.h>
 
 #include "list.h"
 #include "triton.h"
@@ -59,7 +60,7 @@ struct ap_ctrl {
     int (*start)(struct ap_session*);
     int (*restart)(struct ap_session*);
     void (*finished)(struct ap_session*);
-    void (*terminate)(struct ap_session*, int hard);
+    int (*terminate)(struct ap_session*, int hard);  /* Alterado para int */
     int (*change_shaper)(struct ap_session*, int down, int up);
     int (*ifcfg)(struct ap_session*);
     int (*update_ipv6_addr)(struct ap_session*);
@@ -92,7 +93,7 @@ struct ap_session {
     
     unsigned int ifindex;
     char *ifname;
-    int ifname_rename:1;
+    char *ifname_rename;  /* Alterado de bit-field para ponteiro */
     
     char *hwaddr;
     
@@ -155,6 +156,7 @@ struct ap_session_stat {
 };
 
 extern struct ap_session_stat ap_session_stat;
+extern struct net *default_net;
 
 void ap_session_init(struct ap_session*);
 void ap_session_set_ifname(struct ap_session*, const char *ifname);
